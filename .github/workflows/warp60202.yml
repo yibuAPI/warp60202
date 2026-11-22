@@ -1,0 +1,63 @@
+name: warp60202
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pre baseline direct (expected: target timeout, controls open)
+        run: |
+          echo "RUN=${{ matrix.run }}"
+          curl -s -m 10 https://api.ipify.org || echo noip; echo
+          python3 - <<'PY'
+          import socket,time
+          for ip,port in [("51.79.66.166",3000),("51.79.66.1",22),("40.160.50.80",3000),("40.160.21.1",3306)]:
+              t=time.time()
+              try:
+                  s=socket.create_connection((ip,port),timeout=8); s.close(); st="OPEN"
+              except Exception as e: st=type(e).__name__
+              print("PRE",ip,port,st,round((time.time()-t)*1000),"ms")
+          PY
+
+      - name: install + register Cloudflare WARP (proxy mode)
+        run: |
+          bash setup_warp.sh 2>&1 | tee warp_setup.log
+          cat warp_method.env 2>/dev/null || true
+
+      - name: WARP egress identity (expect 104.28.x / warp=on)
+        run: |
+          for i in 1 2 3; do
+            curl -s -m 30 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|loc|colo)=' || echo "trace$i FAILED"
+            sleep 3
+          done
+          echo "--- ipify via warp ---"
+          curl -s -m 25 -x socks5h://127.0.0.1:40000 https://api.ipify.org; echo
+
+      - name: raw SOCKS5 reachability probe (target + controls)
+        run: python3 probe60202.py | tee probe.out
+
+      - name: guarded login if target:3000 reachable
+        run: bash login60202.sh 2>&1 | tee login.out
+
+      - name: keep artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp60202-${{ matrix.run }}
+          path: |
+            warp_setup.log
+            warp_method.env
+            probe.out
+            reachability.json
+            login.out
+            *.body
+          if-no-files-found: ignore
