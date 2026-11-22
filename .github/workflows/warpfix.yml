@@ -1,0 +1,50 @@
+name: warpfix
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: warpfix-${{ github.run_id }}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - name: install warp
+        run: bash setup_warp.sh 2>&1 | tee warp_setup.log
+      - name: identity
+        run: |
+          for i in 1 2; do
+            curl -s -m 30 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|loc|colo)=' || echo "trace$i FAILED"
+            sleep 2
+          done | tee identity.txt
+          echo "--- ipify ipv4 ---" | tee -a identity.txt
+          curl -s -m 20 -x socks5h://127.0.0.1:40000 https://api.ipify.org | tee -a identity.txt; echo
+      - name: raw socks5 probe FIXED
+        run: python3 probe_fix.py 2>&1 | tee probe_fix.out
+      - name: curl cross-check
+        run: |
+          for hp in 51.79.66.166:3000 51.79.66.166:8787 51.79.66.166:10051 51.79.66.166:80 51.79.66.1:22 51.79.66.100:80 40.160.50.80:3000 40.160.21.1:3306 135.148.204.37:3000; do
+            curl -s -m 15 -x socks5h://127.0.0.1:40000 -o /dev/null -w "CURL $hp http=%{http_code} t=%{time_total} err=%{errormsg}\n" "http://$hp/" || echo "CURL $hp FAILED rc=$?"
+          done | tee curl.out
+      - name: guarded login if target 3000 reachable
+        run: bash login60202.sh 2>&1 | tee login.out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: warpfix-${{ matrix.run }}
+          path: |
+            identity.txt
+            probe_fix.out
+            reachability_fix.json
+            reachability.json
+            curl.out
+            login.out
+            *.body
+            warp_setup.log
+          if-no-files-found: ignore
