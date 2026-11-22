@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: pre baseline direct (expected: target timeout, controls open)
+      - name: "pre baseline direct - expect target timeout, controls open"
         run: |
           echo "RUN=${{ matrix.run }}"
           curl -s -m 10 https://api.ipify.org || echo noip; echo
@@ -28,12 +28,12 @@ jobs:
               print("PRE",ip,port,st,round((time.time()-t)*1000),"ms")
           PY
 
-      - name: install + register Cloudflare WARP (proxy mode)
+      - name: "install + register Cloudflare WARP proxy mode"
         run: |
           bash setup_warp.sh 2>&1 | tee warp_setup.log
           cat warp_method.env 2>/dev/null || true
 
-      - name: WARP egress identity (expect 104.28.x / warp=on)
+      - name: "WARP egress identity - expect 104.28.x / warp=on"
         run: |
           for i in 1 2 3; do
             curl -s -m 30 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|loc|colo)=' || echo "trace$i FAILED"
@@ -42,10 +42,10 @@ jobs:
           echo "--- ipify via warp ---"
           curl -s -m 25 -x socks5h://127.0.0.1:40000 https://api.ipify.org; echo
 
-      - name: raw SOCKS5 reachability probe (target + controls)
+      - name: "raw SOCKS5 reachability probe - target + controls"
         run: python3 probe60202.py | tee probe.out
 
-      - name: guarded login if target:3000 reachable
+      - name: "guarded login if target 3000 reachable"
         run: bash login60202.sh 2>&1 | tee login.out
 
       - name: keep artifacts
